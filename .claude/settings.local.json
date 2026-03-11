@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cut -d',' -f3 atp_matches_20*.csv)",
+      "Bash(cut -d',' -f5 atp_matches_20*.csv)",
+      "Bash(cut -d',' -f26 atp_matches_20*.csv)",
+      "Bash(grep \",BR,\" atp_matches_20*.csv)",
+      "Bash(done)"
+    ]
+  }
+}
