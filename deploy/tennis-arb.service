@@ -1,0 +1,24 @@
+[Unit]
+Description=Tennis Latency Arbitrage Engine
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tennis
+Group=tennis
+WorkingDirectory=/home/tennis/tennis_ML
+EnvironmentFile=/home/tennis/tennis_ML/.env
+ExecStart=/usr/bin/python3 arbitrage_engine.py --loop --interval 5 --min-edge 5
+Restart=always
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/home/tennis/tennis_ML/data
+
+[Install]
+WantedBy=multi-user.target
