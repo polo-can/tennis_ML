@@ -1,7 +1,9 @@
 .env
 __pycache__/
 *.pyc
-player_state.pkl
+*.pkl
+!tennis_model.pkl
+!player_state.pkl
 .claude/
 tennis_features_*.csv
 data/*

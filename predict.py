@@ -29,7 +29,8 @@ from transform_scraped import (
     build_recent_player_ids,
 )
 
-DATA_DIR = Path('data')
+# Look for data files in data/ first, then project root
+DATA_DIR = Path('data') if (Path('data') / 'atp_players.csv').exists() else Path('.')
 
 # ── Elo System (from notebook cell 7) ───────────────────────────────────────
 
