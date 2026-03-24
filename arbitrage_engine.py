@@ -34,8 +34,8 @@ from pathlib import Path
 import requests
 from dotenv import load_dotenv
 
-from scrape_sharp import get_sharp_lines, get_soft_lines
-from scrape_loro import intercept_loro_odds
+from scrape_sharp import (get_sharp_lines, get_soft_lines,
+                         fetch_all_tennis_odds, extract_pinnacle_lines)
 from transform_scraped import (
     build_player_index,
     build_recent_player_ids,
@@ -398,23 +398,50 @@ def scan_once(args, player_data, last_initial_index, full_name_index, recent_ids
     else:
         print("  Model: skipped")
 
-    # 2. Sharp lines (Pinnacle)
+    # 2+3. Fetch all odds in ONE API call, then split sharp vs soft
     sharp_lines = []
-    if not args.skip_sharp:
-        print("Fetching Pinnacle odds...")
-        sharp_lines = get_sharp_lines()
+    loro_lines = []
+    if not args.skip_sharp or not args.skip_loro:
+        print("Fetching odds from all bookmakers...")
+        events = fetch_all_tennis_odds()
+
+        all_books = set()
+        for event in events:
+            for bm in event.get("bookmakers", []):
+                all_books.add(bm["key"])
+        if all_books:
+            print(f"  Available: {', '.join(sorted(all_books))}")
+
+        if not args.skip_sharp:
+            # Extract sharp lines (try in order of sharpness)
+            sharp_priority = ["pinnacle", "matchbook", "betfair_ex_eu",
+                              "marathon_bet", "williamhill"]
+            for book in sharp_priority:
+                if book in all_books:
+                    sharp_lines = extract_pinnacle_lines(events, bookmaker=book)
+                    if sharp_lines:
+                        print(f"  Sharp source: {book} ({len(sharp_lines)} matches)")
+                        break
+            if not sharp_lines:
+                print("  Sharp: no bookmaker found")
+
+        if not args.skip_loro:
+            # Extract soft lines as LORO proxy
+            soft_priority = ["unibet", "unibet_eu", "sport888", "betclic",
+                             "nordicbet", "williamhill"]
+            for book in soft_priority:
+                if book in all_books:
+                    loro_lines = extract_pinnacle_lines(events, bookmaker=book)
+                    if loro_lines:
+                        for m in loro_lines:
+                            m["source"] = "loro_proxy"
+                            m["proxy_book"] = book
+                        print(f"  Soft source: {book} ({len(loro_lines)} matches)")
+                        break
+            if not loro_lines:
+                print("  Soft: no bookmaker found")
     else:
         print("  Sharp: skipped")
-
-    # 3. LORO odds (try direct scrape, fall back to soft bookmaker proxy)
-    loro_lines = []
-    if not args.skip_loro:
-        print("Intercepting LORO odds...")
-        loro_lines = intercept_loro_odds(headless=True)
-        if not loro_lines:
-            print("  LORO direct scrape failed (likely captcha), trying soft proxy...")
-            loro_lines = get_soft_lines()
-    else:
         print("  LORO: skipped")
 
     # 4. Match across sources
