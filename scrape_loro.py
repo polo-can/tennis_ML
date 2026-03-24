@@ -203,10 +203,7 @@ def intercept_loro_odds(headless=True, timeout=DEFAULT_TIMEOUT):
         url = response.url
         content_type = response.headers.get("content-type", "")
 
-        if "json" not in content_type:
-            return
-
-        if not is_odds_url(url):
+        if "json" not in content_type and "javascript" not in content_type:
             return
 
         try:
@@ -214,11 +211,12 @@ def intercept_loro_odds(headless=True, timeout=DEFAULT_TIMEOUT):
         except Exception:
             return
 
-        if looks_like_odds_payload(data):
-            odds_payloads.append({
-                "url": url,
-                "data": data,
-            })
+        # Capture ALL JSON responses — the OpenBet endpoint URL patterns
+        # may not match our guesses, so cast a wide net
+        odds_payloads.append({
+            "url": url,
+            "data": data,
+        })
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=headless)
@@ -262,116 +260,165 @@ def intercept_loro_odds(headless=True, timeout=DEFAULT_TIMEOUT):
         parsed = parse_openbet_payload(payload["data"])
         matches.extend(parsed)
 
-    print(f"  Intercepted {len(odds_payloads)} odds payloads, "
+    print(f"  Intercepted {len(odds_payloads)} JSON responses, "
           f"extracted {len(matches)} tennis matches")
+    if not matches and odds_payloads:
+        # Debug: show captured URLs so we can refine
+        print("  DEBUG — captured JSON endpoints:")
+        for p in odds_payloads[:10]:
+            url = p["url"][:120]
+            data = p["data"]
+            size = len(json.dumps(data)) if data else 0
+            dtype = type(data).__name__
+            print(f"    {size:>8} bytes  [{dtype}]  {url}")
     return matches
+
+
+def _recursive_find_events(data, depth=0, max_depth=6):
+    """Recursively search a JSON structure for lists that look like events."""
+    if depth > max_depth:
+        return []
+
+    results = []
+    if isinstance(data, list):
+        # Check if this list contains event-like dicts
+        if len(data) > 0 and isinstance(data[0], dict):
+            results.append(data)
+        for item in data:
+            results.extend(_recursive_find_events(item, depth + 1, max_depth))
+    elif isinstance(data, dict):
+        for val in data.values():
+            results.extend(_recursive_find_events(val, depth + 1, max_depth))
+    return results
+
+
+def _extract_odds_from_item(item):
+    """Try to extract a 2-player match with odds from any dict structure."""
+    if not isinstance(item, dict):
+        return None
+
+    text = json.dumps(item).lower()
+
+    # Must look like a tennis match (check for common tennis terms)
+    tennis_signals = ["tennis", "atp", "wta", "challenger", "itf",
+                      "roland", "wimbledon", "open", "masters",
+                      # French terms used by LORO
+                      "vainqueur", "set", "jeu"]
+    is_tennis = any(s in text for s in tennis_signals)
+
+    # Also check: does the item contain exactly 2 names with odds?
+    # This catches cases where sport type isn't labeled
+
+    # Try multiple structural patterns to extract players + odds
+    candidates = []
+
+    # Pattern 1: item has markets/selections
+    for mkey in ["markets", "eventMarkets", "betOffers", "bets", "odds"]:
+        markets = item.get(mkey, [])
+        if isinstance(markets, dict):
+            markets = list(markets.values())
+        if not isinstance(markets, list):
+            continue
+        for market in markets:
+            if not isinstance(market, dict):
+                continue
+            for skey in ["selections", "eventSelections", "outcomes",
+                         "runners", "picks", "options", "choices"]:
+                sels = market.get(skey, [])
+                if isinstance(sels, list) and len(sels) == 2:
+                    candidates.append(sels)
+
+    # Pattern 2: item directly has selections/outcomes
+    for skey in ["selections", "outcomes", "runners", "participants"]:
+        sels = item.get(skey, [])
+        if isinstance(sels, list) and len(sels) == 2:
+            candidates.append(sels)
+
+    # Pattern 3: item has nested "odds" with player keys
+    if "odds" in item and isinstance(item["odds"], dict):
+        odds_dict = item["odds"]
+        if len(odds_dict) == 2:
+            sels = [{"name": k, "odds": v} for k, v in odds_dict.items()]
+            candidates.append(sels)
+
+    for sels in candidates:
+        try:
+            players = []
+            for sel in sels:
+                if not isinstance(sel, dict):
+                    continue
+                name = ""
+                for nk in ["name", "selectionName", "label", "runnerName",
+                           "participant", "player", "competitorName",
+                           "teamName", "description"]:
+                    if sel.get(nk):
+                        name = str(sel[nk])
+                        break
+
+                odds = 0
+                for ok in ["odds", "price", "decimalOdds", "trueOdds",
+                           "decimal", "dec", "backOdds", "payout"]:
+                    val = sel.get(ok)
+                    if val:
+                        if isinstance(val, dict):
+                            val = val.get("decimal", val.get("dec", 0))
+                        odds = float(val)
+                        if odds > 1.0:
+                            break
+
+                if name and odds > 1.0:
+                    players.append({"name": name, "odds": odds})
+
+            if len(players) == 2:
+                p1, p2 = players
+                tournament = ""
+                for tk in ["competition", "tournament", "league",
+                           "category", "sport", "competitionName"]:
+                    t = item.get(tk, "")
+                    if isinstance(t, dict):
+                        t = t.get("name", "")
+                    if t:
+                        tournament = str(t)
+                        break
+
+                return {
+                    "home": p1["name"],
+                    "away": p2["name"],
+                    "home_odds": p1["odds"],
+                    "away_odds": p2["odds"],
+                    "home_prob": round(1.0 / p1["odds"], 4),
+                    "away_prob": round(1.0 / p2["odds"], 4),
+                    "tournament": tournament,
+                    "is_tennis": is_tennis,
+                    "source": "loro",
+                }
+        except (ValueError, TypeError, KeyError):
+            continue
+
+    return None
 
 
 def parse_openbet_payload(data):
     """Parse an OpenBet/SBTech JSON payload to extract tennis match odds.
 
-    This is a best-effort parser that handles common OpenBet structures.
-    The exact format will need refinement after running --discover mode.
-
-    Common OpenBet structures:
-    - data.events[].markets[].selections[]
-    - data[].outcomes[].odds
-    - events[].eventMarkets[].eventSelections[]
+    Uses recursive search and multiple structural patterns to handle
+    unknown payload formats.
     """
     matches = []
+    seen = set()
 
-    # Strategy 1: Look for events with nested markets/selections
-    events = []
-    if isinstance(data, dict):
-        for key in ["events", "data", "result", "response", "items",
-                     "matches", "content"]:
-            val = data.get(key)
-            if isinstance(val, list):
-                events = val
-                break
-        if not events and isinstance(data, dict):
-            # Maybe the dict itself is an event container
-            events = [data]
-    elif isinstance(data, list):
-        events = data
+    # Find all list-of-dicts in the payload
+    event_lists = _recursive_find_events(data)
 
-    for event in events:
-        if not isinstance(event, dict):
-            continue
-
-        # Check if this is a tennis event
-        event_text = json.dumps(event).lower()
-        if "tennis" not in event_text:
-            continue
-
-        # Extract event name / players
-        event_name = (event.get("name") or event.get("eventName")
-                      or event.get("description") or "")
-
-        # Look for markets
-        markets = (event.get("markets") or event.get("eventMarkets")
-                   or event.get("betOffers") or [])
-        if isinstance(markets, dict):
-            markets = list(markets.values())
-
-        for market in markets:
-            if not isinstance(market, dict):
-                continue
-
-            market_name = (market.get("name") or market.get("marketName")
-                           or market.get("description") or "").lower()
-
-            # Only want match winner / moneyline markets
-            if not any(kw in market_name for kw in
-                       ["winner", "match", "moneyline", "vainqueur",
-                        "1x2", "head"]):
-                if market_name:  # Skip non-winner markets
-                    continue
-
-            # Extract selections/outcomes
-            selections = (market.get("selections")
-                          or market.get("eventSelections")
-                          or market.get("outcomes")
-                          or market.get("runners") or [])
-
-            if len(selections) != 2:
-                continue
-
-            try:
-                players = []
-                for sel in selections:
-                    name = (sel.get("name") or sel.get("selectionName")
-                            or sel.get("label") or sel.get("runnerName")
-                            or "")
-                    odds = (sel.get("odds") or sel.get("price")
-                            or sel.get("decimalOdds")
-                            or sel.get("trueOdds") or 0)
-                    if isinstance(odds, str):
-                        odds = float(odds)
-                    if isinstance(odds, dict):
-                        odds = odds.get("decimal", odds.get("dec", 0))
-                    players.append({"name": name, "odds": float(odds)})
-
-                if all(p["name"] and p["odds"] > 1.0 for p in players):
-                    p1, p2 = players[0], players[1]
-                    tournament = (event.get("competition")
-                                  or event.get("tournament")
-                                  or event.get("league") or "")
-                    if isinstance(tournament, dict):
-                        tournament = tournament.get("name", "")
-
-                    matches.append({
-                        "home": p1["name"],
-                        "away": p2["name"],
-                        "home_odds": p1["odds"],
-                        "away_odds": p2["odds"],
-                        "home_prob": round(1.0 / p1["odds"], 4),
-                        "away_prob": round(1.0 / p2["odds"], 4),
-                        "tournament": tournament,
-                        "source": "loro",
-                    })
-            except (ValueError, TypeError, KeyError):
-                continue
+    for events in event_lists:
+        for event in events:
+            result = _extract_odds_from_item(event)
+            if result and result.get("is_tennis", False):
+                key = (result["home"], result["away"])
+                if key not in seen:
+                    seen.add(key)
+                    del result["is_tennis"]
+                    matches.append(result)
 
     return matches
 

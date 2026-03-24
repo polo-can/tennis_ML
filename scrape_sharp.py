@@ -111,6 +111,8 @@ def fetch_all_tennis_odds(bookmakers=None):
 
     Auto-discovers active tournament keys and queries each one.
     Each API call counts against the monthly quota.
+    Fetches without bookmaker filter to get all available data,
+    then filtering happens client-side in extract_pinnacle_lines.
 
     Returns:
         list of all event dicts across all tournaments
@@ -121,7 +123,9 @@ def fetch_all_tennis_odds(bookmakers=None):
 
     all_events = []
     for sport in sports:
-        events = fetch_odds(sport, bookmakers=bookmakers)
+        # Don't filter at API level — fetch all bookmakers to avoid
+        # missing data when Pinnacle isn't in the requested region
+        events = fetch_odds(sport, regions="eu,uk,us,au")
         all_events.extend(events)
 
     return all_events
