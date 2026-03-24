@@ -93,7 +93,7 @@ def run_predictions(input_csv=None, output_csv=None, load_state=True):
     input_csv = input_csv or str(DATA_DIR / 'upcoming_matches.csv')
     output_csv = output_csv or str(DATA_DIR / 'predictions.csv')
 
-    cmd = ['python3', 'predict.py', '--input', input_csv, '--output', output_csv]
+    cmd = [sys.executable, 'predict.py', '--input', input_csv, '--output', output_csv]
     if load_state:
         cmd.append('--load-state')
 
