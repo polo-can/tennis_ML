@@ -209,7 +209,7 @@ def extract_pinnacle_lines(events, bookmaker=DEFAULT_BOOKMAKER):
 
 
 def get_sharp_lines(bookmaker=DEFAULT_BOOKMAKER):
-    """Main entry point: fetch Pinnacle odds across all active ATP tournaments.
+    """Main entry point: fetch sharp odds across all active ATP tournaments.
 
     Returns:
         List of match dicts with vig-free probabilities.
@@ -219,9 +219,108 @@ def get_sharp_lines(bookmaker=DEFAULT_BOOKMAKER):
         print("  No events found")
         return []
 
+    # Debug: show all available bookmakers
+    all_books = set()
+    for event in events:
+        for bm in event.get("bookmakers", []):
+            all_books.add(bm["key"])
+    if all_books:
+        print(f"  Available bookmakers: {', '.join(sorted(all_books))}")
+    else:
+        print("  WARNING: No bookmakers returned in any event")
+
+    # Try bookmakers in order of sharpness
+    sharp_priority = ["pinnacle", "pinnaclesports", "matchbook",
+                      "betfair_ex_eu", "marathon_bet", "betfair",
+                      "williamhill", "unibet_eu", "betclic",
+                      "sport888"]
+    matches = []
+    used_book = bookmaker
+
+    # First try the requested bookmaker
     matches = extract_pinnacle_lines(events, bookmaker=bookmaker)
-    print(f"  Found {len(matches)} matches with {bookmaker} odds")
+
+    # If not found, try alternatives in order of sharpness
+    if not matches:
+        for alt in sharp_priority:
+            if alt in all_books:
+                matches = extract_pinnacle_lines(events, bookmaker=alt)
+                if matches:
+                    used_book = alt
+                    print(f"  Using {alt} as sharp source ({len(matches)} matches)")
+                    break
+
+    # Last resort: use the first available bookmaker
+    if not matches and all_books:
+        first = sorted(all_books)[0]
+        matches = extract_pinnacle_lines(events, bookmaker=first)
+        if matches:
+            used_book = first
+            print(f"  Fallback to {first} ({len(matches)} matches)")
+
+    print(f"  Found {len(matches)} matches with sharp odds (source: {used_book})")
     return matches
+
+
+def get_all_bookmaker_lines():
+    """Fetch odds from ALL bookmakers for arbitrage comparison.
+
+    Returns:
+        dict mapping bookmaker key -> list of match dicts
+    """
+    events = fetch_all_tennis_odds()
+    if not events:
+        return {}
+
+    all_books = set()
+    for event in events:
+        for bm in event.get("bookmakers", []):
+            all_books.add(bm["key"])
+
+    result = {}
+    for book in all_books:
+        matches = extract_pinnacle_lines(events, bookmaker=book)
+        if matches:
+            result[book] = matches
+
+    return result
+
+
+def get_soft_lines():
+    """Get odds from soft/slow bookmakers as LORO proxy.
+
+    LORO mirrors odds from slow backend providers. These soft bookmakers
+    often have similar lag, so they serve as a proxy for LORO pricing.
+
+    Returns:
+        List of match dicts from the softest available bookmaker.
+    """
+    events = fetch_all_tennis_odds()
+    if not events:
+        return []
+
+    all_books = set()
+    for event in events:
+        for bm in event.get("bookmakers", []):
+            all_books.add(bm["key"])
+
+    # Soft bookmakers (slow to update, similar to LORO's backend)
+    soft_priority = ["unibet_eu", "unibet", "sport888", "betclic",
+                     "nordicbet", "coolbet", "suprabets",
+                     "williamhill"]
+
+    for book in soft_priority:
+        if book in all_books:
+            matches = extract_pinnacle_lines(events, bookmaker=book)
+            if matches:
+                # Tag them as loro-proxy
+                for m in matches:
+                    m["source"] = "loro_proxy"
+                    m["proxy_book"] = book
+                print(f"  Using {book} as LORO proxy ({len(matches)} matches)")
+                return matches
+
+    return []
 
 
 def print_matches(matches):

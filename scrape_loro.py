@@ -30,6 +30,10 @@ LORO_BASE = "https://jeux.loro.ch"
 LORO_SPORTS = f"{LORO_BASE}/sports"
 LORO_LIVE = f"{LORO_BASE}/sports/online/live"
 
+# Alternative: scrape LORO odds from the-odds-api.com if available,
+# or from the LORO mobile/API endpoint which may skip captcha
+LORO_MOBILE = "https://jeux.loro.ch/api/v2/sportsbook"
+
 # URL patterns that typically contain OpenBet/SBTech odds payloads
 # These will be refined after running --discover mode
 ODDS_URL_PATTERNS = [

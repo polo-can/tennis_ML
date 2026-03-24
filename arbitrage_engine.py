@@ -34,7 +34,7 @@ from pathlib import Path
 import requests
 from dotenv import load_dotenv
 
-from scrape_sharp import get_sharp_lines
+from scrape_sharp import get_sharp_lines, get_soft_lines
 from scrape_loro import intercept_loro_odds
 from transform_scraped import (
     build_player_index,
@@ -334,10 +334,11 @@ def format_alert(opp):
         lines.append(f"Pinnacle: {opp['sharp_prob']:.1%}")
     lines.append(f"Consensus: {opp['consensus_prob']:.1%}")
     lines.append(f"")
-    lines.append(f"LORO odds: *{opp['loro_odds']:.2f}* ({opp['loro_prob']:.1%} implied)")
+    lines.append(f"Soft odds: *{opp['loro_odds']:.2f}* ({opp['loro_prob']:.1%} implied)")
     lines.append(f"Edge: *{opp['edge']:.1f}%*")
     lines.append(f"")
     lines.append(f"Sources: {opp['sources']}/3")
+    lines.append(f"_Check LORO for similar or better odds_")
 
     return "\n".join(lines)
 
@@ -405,11 +406,14 @@ def scan_once(args, player_data, last_initial_index, full_name_index, recent_ids
     else:
         print("  Sharp: skipped")
 
-    # 3. LORO odds
+    # 3. LORO odds (try direct scrape, fall back to soft bookmaker proxy)
     loro_lines = []
     if not args.skip_loro:
         print("Intercepting LORO odds...")
         loro_lines = intercept_loro_odds(headless=True)
+        if not loro_lines:
+            print("  LORO direct scrape failed (likely captcha), trying soft proxy...")
+            loro_lines = get_soft_lines()
     else:
         print("  LORO: skipped")
 
