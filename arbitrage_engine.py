@@ -88,14 +88,90 @@ def load_predictions(predictions_csv):
     return preds
 
 
-def run_predictions(input_csv=None, output_csv=None, load_state=True):
-    """Run predict.py as subprocess and return path to predictions CSV."""
-    input_csv = input_csv or str(DATA_DIR / 'upcoming_matches.csv')
+def generate_upcoming_csv(events, output_csv=None):
+    """Generate upcoming_matches.csv from Odds API events.
+
+    Maps Odds API sport keys to tournament info so predict.py can
+    run without needing the Playwright-based scrape_upcoming.py.
+    """
+    output_csv = output_csv or str(DATA_DIR / 'upcoming_matches.csv')
+
+    # Map sport keys to surface and level
+    TOURNEY_MAP = {
+        'australian_open': ('Hard', 'G', 'Australian Open'),
+        'french_open': ('Clay', 'G', 'French Open'),
+        'wimbledon': ('Grass', 'G', 'Wimbledon'),
+        'us_open': ('Hard', 'G', 'US Open'),
+        'indian_wells': ('Hard', 'M', 'Indian Wells'),
+        'miami_open': ('Hard', 'M', 'Miami Open'),
+        'monte_carlo': ('Clay', 'M', 'Monte Carlo'),
+        'madrid_open': ('Clay', 'M', 'Madrid Open'),
+        'rome': ('Clay', 'M', 'Rome'),
+        'canadian_open': ('Hard', 'M', 'Canadian Open'),
+        'cincinnati': ('Hard', 'M', 'Cincinnati'),
+        'shanghai': ('Hard', 'M', 'Shanghai'),
+        'paris': ('Hard', 'M', 'Paris'),
+    }
+
+    matches = []
+    for event in events:
+        sport_key = event.get('sport_key', '')
+        # Extract tournament slug from sport_key (e.g. "tennis_atp_miami_open" -> "miami_open")
+        slug = sport_key.replace('tennis_atp_', '')
+
+        surface, level, tourney_name = 'Hard', 'A', ''
+        for key, (s, l, n) in TOURNEY_MAP.items():
+            if key in slug:
+                surface, level, tourney_name = s, l, n
+                break
+        if not tourney_name:
+            tourney_name = event.get('sport_title', slug).replace('ATP ', '')
+
+        p1 = event.get('home_team', '')
+        p2 = event.get('away_team', '')
+        if p1 and p2:
+            matches.append({
+                'player1_name': p1,
+                'player2_name': p2,
+                'surface': surface,
+                'tourney_level': level,
+                'tourney_name': tourney_name,
+                'round': '',
+                'best_of': 5 if level == 'G' else 3,
+            })
+
+    if not matches:
+        return None
+
+    DATA_DIR.mkdir(exist_ok=True)
+    with open(output_csv, 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=matches[0].keys())
+        writer.writeheader()
+        writer.writerows(matches)
+
+    print(f"  Generated {len(matches)} upcoming matches from Odds API")
+    return output_csv
+
+
+def run_predictions(events=None, input_csv=None, output_csv=None, load_state=True):
+    """Run predict.py as subprocess and return path to predictions CSV.
+
+    If events are provided, generates upcoming_matches.csv from Odds API data
+    instead of requiring scrape_upcoming.py.
+    """
     output_csv = output_csv or str(DATA_DIR / 'predictions.csv')
+
+    if events:
+        input_csv = generate_upcoming_csv(events)
+        if not input_csv:
+            print("  No matches to predict")
+            return None
+    else:
+        input_csv = input_csv or str(DATA_DIR / 'upcoming_matches.csv')
 
     cmd = [sys.executable, 'predict.py', '--input', input_csv, '--output', output_csv]
     if load_state:
-        cmd.append('--load-state')
+        cmd.extend(['--load-state', '--save-state'])
 
     print("Running predict.py...")
     try:
@@ -103,7 +179,7 @@ def run_predictions(input_csv=None, output_csv=None, load_state=True):
         if result.returncode != 0:
             print(f"  predict.py error: {result.stderr[:500]}")
             return None
-        print("  predict.py completed")
+        print(f"  predict.py completed")
     except subprocess.TimeoutExpired:
         print("  predict.py timed out")
         return None
@@ -386,19 +462,8 @@ def print_scan_results(unified, opportunities, min_edge):
 def scan_once(args, player_data, last_initial_index, full_name_index, recent_ids):
     """Run a single arbitrage scan."""
 
-    # 1. Model predictions
-    model_preds = {}
-    if not args.skip_model:
-        predictions_csv = args.predictions
-        if not predictions_csv:
-            predictions_csv = run_predictions(load_state=True)
-        if predictions_csv:
-            model_preds = load_predictions(predictions_csv)
-            print(f"  Model: {len(model_preds)} predictions loaded")
-    else:
-        print("  Model: skipped")
-
-    # 2+3. Fetch all odds in ONE API call, then split sharp vs soft
+    # 1. Fetch all odds in ONE API call
+    events = []
     sharp_lines = []
     loro_lines = []
     if not args.skip_sharp or not args.skip_loro:
@@ -444,7 +509,19 @@ def scan_once(args, player_data, last_initial_index, full_name_index, recent_ids
         print("  Sharp: skipped")
         print("  LORO: skipped")
 
-    # 4. Match across sources
+    # 2. Model predictions (using events from Odds API to build upcoming CSV)
+    model_preds = {}
+    if not args.skip_model:
+        predictions_csv = args.predictions
+        if not predictions_csv:
+            predictions_csv = run_predictions(events=events or None, load_state=True)
+        if predictions_csv:
+            model_preds = load_predictions(predictions_csv)
+            print(f"  Model: {len(model_preds)} predictions loaded")
+    else:
+        print("  Model: skipped")
+
+    # 3. Match across sources
     unified = match_across_sources(
         model_preds, sharp_lines, loro_lines,
         player_data, last_initial_index, full_name_index, recent_ids
