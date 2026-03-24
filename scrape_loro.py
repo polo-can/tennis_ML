@@ -21,6 +21,7 @@ import re
 import sys
 import time
 from datetime import datetime
+from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
@@ -185,8 +186,93 @@ def discover_endpoints(headed=True, timeout=DEFAULT_TIMEOUT):
     return captured
 
 
+COOKIES_FILE = Path(__file__).parent / "data" / "loro_cookies.json"
+
+
+def save_cookies(cookies, path=None):
+    """Save browser cookies to JSON file for reuse."""
+    path = Path(path or COOKIES_FILE)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(cookies, f, indent=2)
+    print(f"  Saved {len(cookies)} cookies to {path}")
+
+
+def load_cookies(path=None):
+    """Load saved cookies from JSON file."""
+    path = Path(path or COOKIES_FILE)
+    if not path.exists():
+        return None
+    try:
+        with open(path) as f:
+            cookies = json.load(f)
+        print(f"  Loaded {len(cookies)} cookies from {path}")
+        return cookies
+    except Exception:
+        return None
+
+
+def login_and_save_cookies(timeout=60):
+    """Open LORO in headed browser, let user solve captcha, save cookies.
+
+    Run this once on your local machine:
+        python3 scrape_loro.py --login
+    """
+    print("Opening LORO in browser — solve the captcha manually...")
+    print(f"You have {timeout} seconds. Navigate to the tennis section if possible.\n")
+
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=False)
+        context = browser.new_context(
+            locale="fr-CH",
+            timezone_id="Europe/Zurich",
+        )
+        page = context.new_page()
+        page.goto(LORO_SPORTS, timeout=timeout * 1000)
+
+        # Wait for user to solve captcha and page to load
+        print("  Waiting for you to solve the captcha...")
+        try:
+            # Wait until we see actual sports content (not captcha page)
+            page.wait_for_selector(
+                'a[href*="tennis"], [class*="sport"], [data-sport]',
+                timeout=timeout * 1000
+            )
+            print("  Captcha solved! Page loaded.")
+        except Exception:
+            print("  Timeout waiting for captcha — saving cookies anyway...")
+
+        # Give extra time for all requests to complete
+        time.sleep(3)
+
+        cookies = context.cookies()
+        save_cookies(cookies)
+
+        # Try navigating to tennis to warm up the session
+        try:
+            tennis_el = page.query_selector(
+                'a[href*="tennis"], button:has-text("Tennis")'
+            )
+            if tennis_el:
+                tennis_el.click()
+                time.sleep(5)
+                # Save cookies again after tennis navigation
+                cookies = context.cookies()
+                save_cookies(cookies)
+                print("  Navigated to tennis section, cookies updated.")
+        except Exception:
+            pass
+
+        browser.close()
+
+    print("\nCookies saved! You can now run the scraper (including on the server).")
+    print("Copy data/loro_cookies.json to the server.")
+
+
 def intercept_loro_odds(headless=True, timeout=DEFAULT_TIMEOUT):
     """Intercept LORO tennis odds from network traffic.
+
+    Uses saved cookies to bypass captcha if available.
 
     Returns:
         List of match dicts:
@@ -222,6 +308,8 @@ def intercept_loro_odds(headless=True, timeout=DEFAULT_TIMEOUT):
             "data": data,
         })
 
+    cookies = load_cookies()
+
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=headless)
         context = browser.new_context(
@@ -233,6 +321,12 @@ def intercept_loro_odds(headless=True, timeout=DEFAULT_TIMEOUT):
                 "Chrome/120.0.0.0 Safari/537.36"
             ),
         )
+
+        # Load saved cookies to bypass captcha
+        if cookies:
+            context.add_cookies(cookies)
+            print("  Using saved cookies to bypass captcha")
+
         page = context.new_page()
         page.on("response", handle_response)
 
@@ -256,12 +350,20 @@ def intercept_loro_odds(headless=True, timeout=DEFAULT_TIMEOUT):
 
         # Extra wait for lazy XHR
         time.sleep(5)
+
+        # Save updated cookies for next run
+        try:
+            new_cookies = context.cookies()
+            save_cookies(new_cookies)
+        except Exception:
+            pass
+
         browser.close()
 
     # Parse all captured odds payloads
     matches = []
     for payload in odds_payloads:
-        parsed = parse_openbet_payload(payload["data"])
+        parsed = parse_loro_payload(payload["data"])
         matches.extend(parsed)
 
     print(f"  Intercepted {len(odds_payloads)} JSON responses, "
@@ -275,6 +377,17 @@ def intercept_loro_odds(headless=True, timeout=DEFAULT_TIMEOUT):
             size = len(json.dumps(data)) if data else 0
             dtype = type(data).__name__
             print(f"    {size:>8} bytes  [{dtype}]  {url}")
+
+        # Dump large payloads for analysis
+        debug_dir = Path(__file__).parent / "data"
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        for i, p in enumerate(odds_payloads):
+            size = len(json.dumps(p["data"])) if p["data"] else 0
+            if size > 5000:
+                fname = debug_dir / f"loro_debug_{i}.json"
+                with open(fname, "w") as f:
+                    json.dump({"url": p["url"], "data": p["data"]}, f, indent=2)
+                print(f"    Dumped {fname.name} ({size} bytes)")
     return matches
 
 
@@ -402,27 +515,95 @@ def _extract_odds_from_item(item):
     return None
 
 
-def parse_openbet_payload(data):
-    """Parse an OpenBet/SBTech JSON payload to extract tennis match odds.
+def parse_loro_payload(data):
+    """Parse LORO JSON payload to extract tennis match odds.
 
-    Uses recursive search and multiple structural patterns to handle
-    unknown payload formats.
+    LORO structure:
+    [
+      { "sportCode": "TENN", "eventPaths": [
+          { "leagueName": "ATP Miami", "events": [
+              { "description": "Lehecka, Jiri vs Fritz, Taylor",
+                "markets": [{ "outcomes": [
+                    {"opponent": "Lehecka, Jiri", "price": "2.45"},
+                    {"opponent": "Fritz, Taylor", "price": "1.40"}
+                ]}]
+              }
+          ]}
+      ]}
+    ]
     """
     matches = []
     seen = set()
 
-    # Find all list-of-dicts in the payload
-    event_lists = _recursive_find_events(data)
+    # Handle list of sports (best-bets, initial-request)
+    sports_list = data if isinstance(data, list) else [data]
 
-    for events in event_lists:
-        for event in events:
-            result = _extract_odds_from_item(event)
-            if result and result.get("is_tennis", False):
-                key = (result["home"], result["away"])
-                if key not in seen:
-                    seen.add(key)
-                    del result["is_tennis"]
-                    matches.append(result)
+    for sport in sports_list:
+        if not isinstance(sport, dict):
+            continue
+
+        # Filter for tennis
+        sport_code = sport.get("sportCode", "")
+        if sport_code and sport_code != "TENN":
+            continue
+
+        event_paths = sport.get("eventPaths", [])
+        if not isinstance(event_paths, list):
+            continue
+
+        for path in event_paths:
+            if not isinstance(path, dict):
+                continue
+
+            league = path.get("leagueName", "")
+            events = path.get("events", [])
+
+            for event in events:
+                if not isinstance(event, dict):
+                    continue
+
+                desc = event.get("description", "")
+                markets = event.get("markets", [])
+
+                for market in markets:
+                    if not isinstance(market, dict):
+                        continue
+
+                    # Only "Face à Face" / head-to-head / TWO_OUTCOME
+                    style = market.get("style", "")
+                    outcomes = market.get("outcomes", [])
+
+                    if len(outcomes) != 2:
+                        continue
+
+                    try:
+                        p1 = outcomes[0]
+                        p2 = outcomes[1]
+                        name1 = p1.get("opponent", "")
+                        name2 = p2.get("opponent", "")
+                        odds1 = float(p1.get("price", 0))
+                        odds2 = float(p2.get("price", 0))
+
+                        if not name1 or not name2 or odds1 <= 1 or odds2 <= 1:
+                            continue
+
+                        key = (name1, name2)
+                        if key in seen:
+                            continue
+                        seen.add(key)
+
+                        matches.append({
+                            "home": name1,
+                            "away": name2,
+                            "home_odds": odds1,
+                            "away_odds": odds2,
+                            "home_prob": round(1.0 / odds1, 4),
+                            "away_prob": round(1.0 / odds2, 4),
+                            "tournament": league,
+                            "source": "loro",
+                        })
+                    except (ValueError, TypeError):
+                        continue
 
     return matches
 
@@ -460,7 +641,13 @@ def main():
                         help="Output as JSON")
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT,
                         help=f"Page load timeout in seconds (default: {DEFAULT_TIMEOUT})")
+    parser.add_argument("--login", action="store_true",
+                        help="Open browser to solve captcha and save cookies")
     args = parser.parse_args()
+
+    if args.login:
+        login_and_save_cookies(timeout=args.timeout or 60)
+        return
 
     if args.discover:
         discover_endpoints(headed=args.headed or True, timeout=args.timeout)

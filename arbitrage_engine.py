@@ -36,6 +36,7 @@ from dotenv import load_dotenv
 
 from scrape_sharp import (get_sharp_lines, get_soft_lines,
                          fetch_all_tennis_odds, extract_pinnacle_lines)
+from scrape_loro import intercept_loro_odds
 from transform_scraped import (
     build_player_index,
     build_recent_player_ids,
@@ -491,18 +492,29 @@ def scan_once(args, player_data, last_initial_index, full_name_index, recent_ids
                 print("  Sharp: no bookmaker found")
 
         if not args.skip_loro:
-            # Extract soft lines as LORO proxy
-            soft_priority = ["unibet", "unibet_eu", "sport888", "betclic",
-                             "nordicbet", "williamhill"]
-            for book in soft_priority:
-                if book in all_books:
-                    loro_lines = extract_pinnacle_lines(events, bookmaker=book)
-                    if loro_lines:
-                        for m in loro_lines:
-                            m["source"] = "loro_proxy"
-                            m["proxy_book"] = book
-                        print(f"  Soft source: {book} ({len(loro_lines)} matches)")
-                        break
+            # Try real LORO scraper first (needs cookies)
+            print("Fetching LORO odds...")
+            try:
+                loro_lines = intercept_loro_odds(headless=True)
+                if loro_lines:
+                    print(f"  LORO direct: {len(loro_lines)} matches")
+            except Exception as e:
+                print(f"  LORO direct failed: {e}")
+
+            # Fall back to soft bookmaker proxy
+            if not loro_lines:
+                print("  Falling back to soft book proxy...")
+                soft_priority = ["unibet", "unibet_eu", "sport888", "betclic",
+                                 "nordicbet", "williamhill"]
+                for book in soft_priority:
+                    if book in all_books:
+                        loro_lines = extract_pinnacle_lines(events, bookmaker=book)
+                        if loro_lines:
+                            for m in loro_lines:
+                                m["source"] = "loro_proxy"
+                                m["proxy_book"] = book
+                            print(f"  Soft source: {book} ({len(loro_lines)} matches)")
+                            break
             if not loro_lines:
                 print("  Soft: no bookmaker found")
     else:

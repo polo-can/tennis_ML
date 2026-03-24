@@ -1,0 +1,222 @@
+[
+  {
+    "name": "m_ses",
+    "value": "20260324161343",
+    "domain": ".jeux.loro.ch",
+    "path": "/",
+    "expires": -1,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "_ga",
+    "value": "GA1.1.901785330.1774365224",
+    "domain": ".loro.ch",
+    "path": "/",
+    "expires": 1808925515.885537,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "FPID",
+    "value": "FPID2.2.vOtcQMu6aw%2Fu%2BxSD9BXY%2BZjq85QBioTz8jusqWnIf%2BA%3D.1774365224",
+    "domain": ".loro.ch",
+    "path": "/",
+    "expires": 1808925516.068418,
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "_fbp",
+    "value": "fb.1.1774365225248.1141572448",
+    "domain": ".loro.ch",
+    "path": "/",
+    "expires": 1782141516.274663,
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "_gtmeec",
+    "value": "e30%3D",
+    "domain": ".loro.ch",
+    "path": "/",
+    "expires": 1782141516.273877,
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "Strict"
+  },
+  {
+    "name": "sbss_a5f187fb-79af-439f-a13a-75d3bd2826b2",
+    "value": "5bef6c8b-b86f-4318-a815-362dbff18f7f",
+    "domain": "site-see.slgnt.eu",
+    "path": "/",
+    "expires": 1805901516.498544,
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "sbt_i",
+    "value": "7N2EzZTIxYTctODZmYy00YjVmLTg0ZTgtNWY5NGE3YTkwNjFmOzNWJlZjZjOGItYjg2Zi00MzE4LWE4MTUtMzYyZGJmZjE4ZjdmOzsE=",
+    "domain": ".loro.ch",
+    "path": "/",
+    "expires": 1805901516,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "axeptio_cookies",
+    "value": "{%22$$token%22:%22JWGLXJ9oTdBYgiqOBQKv0Tncbj%22%2C%22$$date%22:%222026-03-24T15:14:01.510Z%22%2C%22$$cookiesVersion%22:{%22name%22:%22loro_fr-CH%22%2C%22identifier%22:%2267ab52aa753e504c35a099c3%22}%2C%22google_cdn%22:true%2C%22cloudflare%22:true%2C%22cloudfront%22:true%2C%22google_fonts%22:true%2C%22googletagmanager%22:true%2C%22hcaptcha%22:true%2C%22double_click%22:true%2C%22facebook_sdk%22:true%2C%22google_analytics%22:true%2C%22adformcookie%22:true%2C%22facebook_pixel%22:true%2C%22facebook_conversion_tracking%22:true%2C%22facebook_custom_audiences%22:true%2C%22selligent%22:true%2C%22the_tradedesk%22:true%2C%22thetrade_desk%22:true%2C%22xandr%22:true%2C%22CloudFlare%22:true%2C%22Double_Click%22:true%2C%22adformCookie%22:true%2C%22Facebook%20Conversion%20Tracking%22:true%2C%22Facebook%20Custom%20Audiences%22:true%2C%22Selligent%22:true%2C%22TheTrade%20Desk%22:true%2C%22$$googleConsentMode%22:{%22analytics_storage%22:%22granted%22%2C%22ad_storage%22:%22granted%22%2C%22ad_user_data%22:%22granted%22%2C%22ad_personalization%22:%22granted%22%2C%22version%22:2}%2C%22$$scope%22:%22persistent%22%2C%22$$duration%22:365%2C%22$$completed%22:true}",
+    "domain": ".loro.ch",
+    "path": "/",
+    "expires": 1805901241,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "axeptio_authorized_vendors",
+    "value": "%2Cgoogle_cdn%2Ccloudflare%2Ccloudfront%2Cgoogle_fonts%2Cgoogletagmanager%2Chcaptcha%2Cdouble_click%2Cfacebook_sdk%2Cgoogle_analytics%2Cadformcookie%2Cfacebook_pixel%2Cfacebook_conversion_tracking%2Cfacebook_custom_audiences%2Cselligent%2Cthe_tradedesk%2Cthetrade_desk%2Cxandr%2CCloudFlare%2CDouble_Click%2CadformCookie%2CFacebook%20Conversion%20Tracking%2CFacebook%20Custom%20Audiences%2CSelligent%2CTheTrade%20Desk%2C",
+    "domain": ".loro.ch",
+    "path": "/",
+    "expires": 1805901241,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "axeptio_all_vendors",
+    "value": "%2Cgoogle_cdn%2Ccloudflare%2Ccloudfront%2Cgoogle_fonts%2Cgoogletagmanager%2Chcaptcha%2Cdouble_click%2Cfacebook_sdk%2Cgoogle_analytics%2Cadformcookie%2Cfacebook_pixel%2Cfacebook_conversion_tracking%2Cfacebook_custom_audiences%2Cselligent%2Cthe_tradedesk%2Cthetrade_desk%2Cxandr%2CCloudFlare%2CDouble_Click%2CadformCookie%2CFacebook%20Conversion%20Tracking%2CFacebook%20Custom%20Audiences%2CSelligent%2CTheTrade%20Desk%2C",
+    "domain": ".loro.ch",
+    "path": "/",
+    "expires": 1805901241,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "FPLC",
+    "value": "%2BD0hc%2ByLTivMq%2Bco6ZoaUQP67Wpjm9ZVhJcAsZAhI6efCYWqR5YHDn7A8UV%2F8MskQyS3URFI0Jp5RjFHQPssdJKi7d%2FmZf%2BIe9o6ZmuW%2BgSXBoWecA%2FvVvSsWA9Snw%3D%3D",
+    "domain": ".loro.ch",
+    "path": "/",
+    "expires": 1774437241.700268,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "FPAU",
+    "value": "1.2.53687893.1774365242",
+    "domain": ".loro.ch",
+    "path": "/",
+    "expires": 1782141242.068619,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "TDID",
+    "value": "b23a7373-385a-4db2-ad05-5f3a0d6fb8de",
+    "domain": ".adsrvr.org",
+    "path": "/",
+    "expires": 1805901242.639567,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "TDID",
+    "value": "b23a7373-385a-4db2-ad05-5f3a0d6fb8de",
+    "domain": ".loro.ch",
+    "path": "/",
+    "expires": 1774970042,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "Strict"
+  },
+  {
+    "name": "_fbp",
+    "value": "fb.2.1774365242696.629599662259964094",
+    "domain": ".jeux.loro.ch",
+    "path": "/",
+    "expires": 1782141517,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "__cf_bm",
+    "value": "BwzNcqHGfrQgUidErvaTC8NC6B2rkKIpFC8.m6U4Mgo-1774365261-1.0.1.1-e7tbD3vfcAgCUgb0zF3a6HdBQOfM4hGKDsB2Ijz3USwCmQR.AbYCW7.RPtnyY18g0NM4Bu.9GVyCezKf4v.ACwKfQXAzMxqawejlo5wLCoM",
+    "domain": ".web.loro.ch",
+    "path": "/",
+    "expires": 1774367061.6928,
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "IDE",
+    "value": "AHWqTUmupHD-Ycg53egwWX751R5PdozLx9id-794hM5Cz4sPCfuxSxlXfJ9zY6lqQXs",
+    "domain": ".doubleclick.net",
+    "path": "/",
+    "expires": 1808925263.477748,
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "__cf_bm",
+    "value": "jEqfKB80dy4dPWVC1rOpP3pjVuXeS.liAFFgQwZAZ5M-1774365264-1.0.1.1-Vg7vMG3u6IRKxbbu.YWACROETz1a0rGMw.JJRtu.urwL2a0Q3afGLNu0_W7eiDhwF.aeO7yCi.dFM1uDCUMAHtcCRjHJUbx.UPswKxC16P8",
+    "domain": ".hcaptcha.com",
+    "path": "/",
+    "expires": 1774367064.208976,
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "__cf_bm",
+    "value": "gYYUsqZgNjXbp5wpnHveQXe66VIHGNMfzqKBDgnnar8-1774365264-1.0.1.1-oCcXeNbVRoXoSv0l.uLOw9ha7Z2iSLsyIx2gE44IEwTp_Oos1MYwABhXtLSDFDhu669.U6xnvuONKYdtaiSA3PZjDEU.iXO4Ksg4424byfM",
+    "domain": ".slgnt.eu",
+    "path": "/",
+    "expires": 1774367064.596308,
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "_ga_0SVJD90S3Y",
+    "value": "GS2.1.s1774365223$o1$g1$t1774365515$j60$l0$h1643690709",
+    "domain": ".loro.ch",
+    "path": "/",
+    "expires": 1808925515.884716,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "FPGSID",
+    "value": "1.1774365241.1774365516.G-0SVJD90S3Y.9qh6J88TcKvfYsa8Z8-hZg",
+    "domain": ".loro.ch",
+    "path": "/",
+    "expires": 1774367041.068831,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "Strict"
+  },
+  {
+    "name": "m_cnt",
+    "value": "8",
+    "domain": ".jeux.loro.ch",
+    "path": "/",
+    "expires": -1,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "Lax"
+  }
+]
