@@ -802,12 +802,13 @@ def scan_once(args, player_data, last_initial_index, full_name_index, recent_ids
                 except ValueError:
                     pass
             hours_since = (time.time() - last_call) / 3600
-            if hours_since >= 1.0:
+            if hours_since >= 3.0:
                 need_sharp = True
-                print(f"\n  Hourly Odds API check ({hours_since:.1f}h since last)...")
+                print(f"\n  Scheduled Odds API check ({hours_since:.1f}h since last)...")
             else:
+                mins_left = (3.0 - hours_since) * 60
                 print(f"\n  Pre-scan: no edges — skipping Odds API "
-                      f"(next check in {60 - hours_since*60:.0f}min)")
+                      f"(next check in {mins_left:.0f}min)")
     elif not poly_lines:
         need_sharp = True
         print("  No Polymarket data — using Odds API")
