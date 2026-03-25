@@ -53,6 +53,7 @@ DATA_DIR = Path('data')
 PLAYERS_CSV = 'atp_players.csv'
 PAPER_TRADES_CSV = DATA_DIR / 'paper_trades.csv'
 SCAN_LOG_CSV = DATA_DIR / 'scan_log.csv'
+SENT_CACHE_FILE = DATA_DIR / 'sent_alerts.json'
 
 # ── Edge Detection ────────────────────────────────────────────────────────────
 
@@ -601,6 +602,26 @@ def find_opportunities(unified_matches, min_edge=DEFAULT_MIN_EDGE):
     return opportunities
 
 
+# ── Sent Alerts Cache ─────────────────────────────────────────────────────────
+
+def _load_sent_cache():
+    """Load previously sent alert cache from disk."""
+    if not SENT_CACHE_FILE.exists():
+        return {}
+    try:
+        with open(SENT_CACHE_FILE) as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _save_sent_cache(cache):
+    """Save sent alert cache to disk."""
+    DATA_DIR.mkdir(exist_ok=True)
+    with open(SENT_CACHE_FILE, 'w') as f:
+        json.dump(cache, f, indent=2)
+
+
 # ── Telegram Alerts ───────────────────────────────────────────────────────────
 
 def send_telegram_alert(message):
@@ -917,17 +938,58 @@ def scan_once(args, player_data, last_initial_index, full_name_index, recent_ids
             log_paper_trade(opp, sharp_source=sharp_source,
                            soft_source=soft_source)
 
-        if not args.dry_run:
-            print(f"  Sending {len(opportunities)} Telegram alert(s)...")
-            for opp in opportunities:
-                msg = format_alert(opp)
-                sent = send_telegram_alert(msg)
-                status = "sent" if sent else "FAILED"
-                print(f"    {opp['player']} ({opp['edge']:.1f}% edge): {status}")
+        # Load sent alerts cache
+        sent_cache = _load_sent_cache()
+        new_alerts = []
+        for opp in opportunities:
+            alert_key = f"{normalize_player_name(opp['player'])}|{normalize_player_name(opp['opponent'])}"
+            prev = sent_cache.get(alert_key)
+            if prev:
+                # Only re-alert if edge changed by >2% or odds changed
+                prev_edge = prev.get('edge', 0)
+                prev_odds = prev.get('loro_odds', 0)
+                if (abs(opp['edge'] - prev_edge) < 2.0
+                        and abs(opp['loro_odds'] - prev_odds) < 0.05):
+                    print(f"    {opp['player']}: already alerted "
+                          f"(edge {prev_edge:.1f}% -> {opp['edge']:.1f}%), skipping")
+                    continue
+                else:
+                    print(f"    {opp['player']}: edge changed "
+                          f"({prev_edge:.1f}% -> {opp['edge']:.1f}%), re-alerting")
+            new_alerts.append((alert_key, opp))
+
+        if new_alerts:
+            if not args.dry_run:
+                print(f"  Sending {len(new_alerts)} Telegram alert(s)...")
+                for alert_key, opp in new_alerts:
+                    msg = format_alert(opp)
+                    sent = send_telegram_alert(msg)
+                    status = "sent" if sent else "FAILED"
+                    print(f"    {opp['player']} ({opp['edge']:.1f}% edge): {status}")
+                    if sent:
+                        sent_cache[alert_key] = {
+                            'edge': opp['edge'],
+                            'loro_odds': opp['loro_odds'],
+                            'timestamp': time.time(),
+                        }
+            else:
+                print(f"\n  [DRY RUN] Would send {len(new_alerts)} alert(s)")
+                for _, opp in new_alerts:
+                    print(f"\n{format_alert(opp)}")
+                    alert_key = f"{normalize_player_name(opp['player'])}|{normalize_player_name(opp['opponent'])}"
+                    sent_cache[alert_key] = {
+                        'edge': opp['edge'],
+                        'loro_odds': opp['loro_odds'],
+                        'timestamp': time.time(),
+                    }
         else:
-            print(f"\n  [DRY RUN] Would send {len(opportunities)} alert(s)")
-            for opp in opportunities:
-                print(f"\n{format_alert(opp)}")
+            print("  No new alerts (all already sent)")
+
+        # Clean old entries (>24h) and save cache
+        cutoff = time.time() - 86400
+        sent_cache = {k: v for k, v in sent_cache.items()
+                      if v.get('timestamp', 0) > cutoff}
+        _save_sent_cache(sent_cache)
 
     # 9. Paper trading summary
     print_paper_summary()
