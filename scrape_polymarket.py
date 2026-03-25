@@ -71,8 +71,8 @@ def fetch_polymarket_odds(min_liquidity=MIN_LIQUIDITY):
     for event in events:
         slug = event.get('slug', '')
 
-        # Only ATP matches
-        if not slug.startswith('atp-'):
+        # Only ATP/WTA matches
+        if not (slug.startswith('atp-') or slug.startswith('wta-')):
             continue
 
         title = event.get('title', '')
@@ -169,7 +169,7 @@ def fetch_polymarket_odds(min_liquidity=MIN_LIQUIDITY):
 def print_matches(matches):
     """Display Polymarket matches."""
     if not matches:
-        print("No Polymarket ATP tennis markets found.")
+        print("No Polymarket tennis markets found.")
         return
 
     print(f"\n{'Match':<40} {'Prob':>12} {'Odds':>12} {'Volume':>10} {'Liq':>10}")
@@ -203,7 +203,7 @@ def main():
     else:
         print_matches(matches)
 
-    print(f"\n  Total: {len(matches)} Polymarket ATP markets")
+    print(f"\n  Total: {len(matches)} Polymarket tennis markets")
 
 
 if __name__ == "__main__":
