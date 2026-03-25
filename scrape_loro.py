@@ -1,23 +1,28 @@
 """
 Fetch Loterie Romande (JouezSport) tennis odds via their public API.
 
-No browser, no captcha, no cookies — just a single HTTP request.
+Uses the calendar endpoint to get ALL matches (today + tomorrow),
+not just the featured "best-bets" selection.
+
+No browser, no captcha, no cookies — just HTTP requests.
 
 Usage:
     python3 scrape_loro.py              # Fetch LORO tennis odds
     python3 scrape_loro.py --json       # Output as JSON
     python3 scrape_loro.py --all        # Show all sports, not just tennis
+    python3 scrape_loro.py --days 3     # Look ahead 3 days
 """
 
 import argparse
 import json
 import sys
+from datetime import datetime, timedelta
 
 import requests
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
-LORO_API = "https://jeux.loro.ch/api/sport/sports/events/best-bets"
+LORO_CALENDAR = "https://jeux.loro.ch/api/sport/sports/events/calendar"
 
 HEADERS = {
     "User-Agent": (
@@ -30,91 +35,104 @@ HEADERS = {
     "Referer": "https://jeux.loro.ch/sports",
 }
 
+# ATP categories to include (skip doubles "DH" and other non-singles)
+ATP_SINGLES_LEAGUES = {"ATP Miami", "ATP"}
 
-def fetch_loro_odds(sport_filter="TENN"):
-    """Fetch odds from LORO's public API.
+
+def fetch_loro_odds(sport_filter="TENN", atp_only=True, days_ahead=2):
+    """Fetch odds from LORO's calendar API for today + upcoming days.
 
     Args:
-        sport_filter: Sport code to filter for ("TENN", "FOOT", etc.)
-                      Use None for all sports.
+        sport_filter: Sport code to filter ("TENN", "FOOT", None for all).
+        atp_only: If True, only return ATP singles matches.
+        days_ahead: Number of days to look ahead (default: 2 = today + tomorrow).
 
     Returns:
         List of match dicts with odds.
     """
-    try:
-        resp = requests.get(LORO_API, headers=HEADERS, timeout=15)
-        resp.raise_for_status()
-    except requests.RequestException as e:
-        print(f"  LORO API error: {e}")
-        return []
-
-    data = resp.json()
-    if not isinstance(data, list):
-        print(f"  LORO API: unexpected response type {type(data).__name__}")
-        return []
-
     matches = []
     seen = set()
 
-    for sport in data:
-        if not isinstance(sport, dict):
+    for day_offset in range(days_ahead):
+        date = (datetime.now() + timedelta(days=day_offset)).strftime("%Y-%m-%d")
+        params = {"date": date}
+        if sport_filter:
+            params["sportCode"] = sport_filter
+
+        try:
+            resp = requests.get(LORO_CALENDAR, headers=HEADERS,
+                                params=params, timeout=15)
+            resp.raise_for_status()
+        except requests.RequestException as e:
+            print(f"  LORO API error ({date}): {e}")
             continue
 
-        sport_code = sport.get("sportCode", "")
-        if sport_filter and sport_code != sport_filter:
+        data = resp.json()
+        if not isinstance(data, dict):
             continue
 
-        for path in sport.get("eventPaths", []):
-            if not isinstance(path, dict):
+        events = data.get("events", [])
+
+        for event in events:
+            if not isinstance(event, dict):
                 continue
 
-            league = path.get("leagueName", "")
+            sport_code = event.get("sportCode", "")
+            if sport_filter and sport_code != sport_filter:
+                continue
 
-            for event in path.get("events", []):
-                if not isinstance(event, dict):
+            category = event.get("sportCategory", "")
+            league = event.get("leagueName", "")
+
+            # Filter: ATP singles only (skip doubles "DH", "DF")
+            if atp_only and sport_filter == "TENN":
+                if "DH" in league or "DF" in league:
+                    continue
+                if category != "ATP":
                     continue
 
-                markets = event.get("markets", [])
-                for market in markets:
-                    if not isinstance(market, dict):
+            markets = event.get("markets", [])
+            for market in markets:
+                if not isinstance(market, dict):
+                    continue
+
+                outcomes = market.get("outcomes", [])
+                if len(outcomes) != 2:
+                    continue
+
+                try:
+                    p1, p2 = outcomes[0], outcomes[1]
+                    name1 = p1.get("opponent", "")
+                    name2 = p2.get("opponent", "")
+                    odds1 = float(p1.get("price", 0))
+                    odds2 = float(p2.get("price", 0))
+
+                    if not name1 or not name2 or odds1 <= 1 or odds2 <= 1:
                         continue
 
-                    outcomes = market.get("outcomes", [])
-                    if len(outcomes) != 2:
+                    key = (name1, name2)
+                    if key in seen:
                         continue
+                    seen.add(key)
 
-                    try:
-                        p1, p2 = outcomes[0], outcomes[1]
-                        name1 = p1.get("opponent", "")
-                        name2 = p2.get("opponent", "")
-                        odds1 = float(p1.get("price", 0))
-                        odds2 = float(p2.get("price", 0))
-
-                        if not name1 or not name2 or odds1 <= 1 or odds2 <= 1:
-                            continue
-
-                        key = (name1, name2)
-                        if key in seen:
-                            continue
-                        seen.add(key)
-
-                        matches.append({
-                            "home": name1,
-                            "away": name2,
-                            "home_odds": odds1,
-                            "away_odds": odds2,
-                            "home_prob": round(1.0 / odds1, 4),
-                            "away_prob": round(1.0 / odds2, 4),
-                            "tournament": league,
-                            "source": "loro",
-                        })
-                    except (ValueError, TypeError):
-                        continue
+                    matches.append({
+                        "home": name1,
+                        "away": name2,
+                        "home_odds": odds1,
+                        "away_odds": odds2,
+                        "home_prob": round(1.0 / odds1, 4),
+                        "away_prob": round(1.0 / odds2, 4),
+                        "tournament": league,
+                        "date": date,
+                        "source": "loro",
+                    })
+                except (ValueError, TypeError):
+                    continue
 
     return matches
 
 
-# Keep old function name for backwards compatibility with arbitrage_engine
+# Backwards compatibility with arbitrage_engine
 intercept_loro_odds = lambda **kwargs: fetch_loro_odds()
 
 
@@ -147,11 +165,15 @@ def main():
                         help="Output as JSON")
     parser.add_argument("--all", action="store_true",
                         help="Show all sports, not just tennis")
+    parser.add_argument("--days", type=int, default=2,
+                        help="Days to look ahead (default: 2)")
     args = parser.parse_args()
 
     sport = None if args.all else "TENN"
+    atp = not args.all
     print("Fetching LORO odds...")
-    matches = fetch_loro_odds(sport_filter=sport)
+    matches = fetch_loro_odds(sport_filter=sport, atp_only=atp,
+                              days_ahead=args.days)
 
     if args.json:
         print(json.dumps(matches, indent=2))
