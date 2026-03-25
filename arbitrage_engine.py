@@ -778,6 +778,10 @@ def scan_once(args, player_data, last_initial_index, full_name_index, recent_ids
     sharp_lines = []
     need_sharp = False
 
+    # Smart API gating: call Odds API only when Poly vs LORO shows
+    # a potential edge, OR on a scheduled hourly check.
+    # LORO has very few ATP matches, so we also check Poly vs cached
+    # soft odds from the last Odds API call.
     if poly_lines and loro_lines:
         pre_edges = _find_pre_edges(
             poly_lines, loro_lines, player_data,
@@ -789,20 +793,33 @@ def scan_once(args, player_data, last_initial_index, full_name_index, recent_ids
             print(f"\n  Pre-scan: {len(pre_edges)} potential edge(s) detected "
                   f"(max {max(pre_edges):.1f}%) — confirming with sharp odds...")
         else:
-            print(f"\n  Pre-scan: no Poly vs LORO edges >= {args.min_edge}% — "
-                  f"skipping Odds API (saving credits)")
-    elif not poly_lines and not args.skip_poly:
-        # No Polymarket data — fall back to Odds API
+            # Also check if it's time for scheduled hourly Odds API call
+            cache_file = DATA_DIR / 'last_odds_api_call.txt'
+            last_call = 0
+            if cache_file.exists():
+                try:
+                    last_call = float(cache_file.read_text().strip())
+                except ValueError:
+                    pass
+            hours_since = (time.time() - last_call) / 3600
+            if hours_since >= 1.0:
+                need_sharp = True
+                print(f"\n  Hourly Odds API check ({hours_since:.1f}h since last)...")
+            else:
+                print(f"\n  Pre-scan: no edges — skipping Odds API "
+                      f"(next check in {60 - hours_since*60:.0f}min)")
+    elif not poly_lines:
         need_sharp = True
-        print("  No Polymarket data — will use Odds API")
-    elif args.skip_poly:
-        need_sharp = True
+        print("  No Polymarket data — using Odds API")
 
     # ── Phase 3: Paid Odds API (only if needed) ───────────────────────
 
     if need_sharp and not args.skip_sharp:
         print("Fetching sharp odds (Odds API)...")
         events = fetch_all_tennis_odds()
+        # Save timestamp to throttle future calls
+        DATA_DIR.mkdir(exist_ok=True)
+        (DATA_DIR / 'last_odds_api_call.txt').write_text(str(time.time()))
 
         all_books = set()
         for event in events:
