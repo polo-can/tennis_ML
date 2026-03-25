@@ -44,7 +44,7 @@ def fetch_loro_odds(sport_filter="TENN", atp_only=True, days_ahead=2):
 
     Args:
         sport_filter: Sport code to filter ("TENN", "FOOT", None for all).
-        atp_only: If True, only return ATP singles matches.
+        atp_only: If True, only return ATP/WTA singles matches.
         days_ahead: Number of days to look ahead (default: 2 = today + tomorrow).
 
     Returns:
@@ -84,11 +84,11 @@ def fetch_loro_odds(sport_filter="TENN", atp_only=True, days_ahead=2):
             category = event.get("sportCategory", "")
             league = event.get("leagueName", "")
 
-            # Filter: ATP singles only (skip doubles "DH", "DF")
+            # Filter: ATP/WTA singles only (skip doubles "DH", "DF")
             if atp_only and sport_filter == "TENN":
                 if "DH" in league or "DF" in league:
                     continue
-                if category != "ATP":
+                if category not in ("ATP", "WTA", "WTA 125K"):
                     continue
 
             markets = event.get("markets", [])
