@@ -225,11 +225,11 @@ def load_predictions(predictions_csv):
     return preds
 
 
-def generate_upcoming_csv(events, output_csv=None):
-    """Generate upcoming_matches.csv from Odds API events.
+def generate_upcoming_csv(events=None, poly_lines=None, output_csv=None):
+    """Generate upcoming_matches.csv from Odds API events or Polymarket data.
 
-    Maps Odds API sport keys to tournament info so predict.py can
-    run without needing the Playwright-based scrape_upcoming.py.
+    Maps sport keys to tournament info so predict.py can run.
+    Falls back to Polymarket data if no Odds API events available.
     """
     output_csv = output_csv or str(DATA_DIR / 'upcoming_matches.csv')
 
@@ -251,9 +251,10 @@ def generate_upcoming_csv(events, output_csv=None):
     }
 
     matches = []
-    for event in events:
+
+    # Prefer Odds API events if available
+    for event in (events or []):
         sport_key = event.get('sport_key', '')
-        # Extract tournament slug from sport_key (e.g. "tennis_atp_miami_open" -> "miami_open")
         slug = sport_key.replace('tennis_atp_', '')
 
         surface, level, tourney_name = 'Hard', 'A', ''
@@ -277,6 +278,34 @@ def generate_upcoming_csv(events, output_csv=None):
                 'best_of': 5 if level == 'G' else 3,
             })
 
+    # Fall back to Polymarket data if no Odds API events
+    if not matches and poly_lines:
+        seen = set()
+        for pm in poly_lines:
+            key = (pm['home'], pm['away'])
+            if key in seen:
+                continue
+            seen.add(key)
+
+            tourney = pm.get('tournament', '')
+            surface, level = 'Hard', 'A'
+            tourney_lower = tourney.lower()
+            for tkey, (s, l, n) in TOURNEY_MAP.items():
+                if tkey.replace('_', ' ') in tourney_lower or n.lower() in tourney_lower:
+                    surface, level = s, l
+                    tourney = n
+                    break
+
+            matches.append({
+                'player1_name': pm['home'],
+                'player2_name': pm['away'],
+                'surface': surface,
+                'tourney_level': level,
+                'tourney_name': tourney,
+                'round': '',
+                'best_of': 5 if level == 'G' else 3,
+            })
+
     if not matches:
         return None
 
@@ -290,16 +319,17 @@ def generate_upcoming_csv(events, output_csv=None):
     return output_csv
 
 
-def run_predictions(events=None, input_csv=None, output_csv=None, load_state=True):
+def run_predictions(events=None, poly_lines=None, input_csv=None,
+                    output_csv=None, load_state=True):
     """Run predict.py as subprocess and return path to predictions CSV.
 
-    If events are provided, generates upcoming_matches.csv from Odds API data
+    If events or poly_lines are provided, generates upcoming_matches.csv
     instead of requiring scrape_upcoming.py.
     """
     output_csv = output_csv or str(DATA_DIR / 'predictions.csv')
 
-    if events:
-        input_csv = generate_upcoming_csv(events)
+    if events or poly_lines:
+        input_csv = generate_upcoming_csv(events=events, poly_lines=poly_lines)
         if not input_csv:
             print("  No matches to predict")
             return None
@@ -493,10 +523,8 @@ def find_opportunities(unified_matches, min_edge=DEFAULT_MIN_EDGE):
             opp_key = 'p2' if player_key == 'p1' else 'p1'
             player_name = match[f'{player_key}_name']
 
-            # Get consensus probability from model + sharp + polymarket
+            # Consensus from sharp + polymarket ONLY (model is advisory)
             probs = []
-            if match['model']:
-                probs.append(match['model'][f'{player_key}_prob'])
             if match['sharp']:
                 probs.append(match['sharp'][f'{player_key}_prob'])
             if match['poly']:
@@ -508,12 +536,7 @@ def find_opportunities(unified_matches, min_edge=DEFAULT_MIN_EDGE):
             consensus_prob = sum(probs) / len(probs)
 
             # Check sharp sources agreement (skip if they diverge too much)
-            sharp_probs = []
-            if match['sharp']:
-                sharp_probs.append(match['sharp'][f'{player_key}_prob'])
-            if match['poly']:
-                sharp_probs.append(match['poly'][f'{player_key}_prob'])
-            if len(sharp_probs) == 2 and abs(sharp_probs[0] - sharp_probs[1]) > AGREEMENT_THRESHOLD * 2:
+            if len(probs) == 2 and abs(probs[0] - probs[1]) > AGREEMENT_THRESHOLD * 2:
                 continue  # Sharp sources disagree too much
 
             # Calculate edge against LORO
@@ -584,8 +607,6 @@ def format_alert(opp):
         f"",
     ]
 
-    if opp['model_prob'] is not None:
-        lines.append(f"Model: {opp['model_prob']:.1%}")
     if opp['sharp_prob'] is not None:
         lines.append(f"Sharp: {opp['sharp_prob']:.1%}")
     if opp.get('poly_prob') is not None:
@@ -596,6 +617,9 @@ def format_alert(opp):
     lines.append(f"Soft odds: *{opp['loro_odds']:.2f}* ({opp['loro_prob']:.1%} implied)")
     lines.append(f"Edge: *{opp['edge']:.1f}%*")
     lines.append(f"")
+    if opp['model_prob'] is not None:
+        model_agrees = "agrees" if abs(opp['model_prob'] - opp['consensus_prob']) < 0.05 else "disagrees"
+        lines.append(f"ML Model: {opp['model_prob']:.1%} ({model_agrees})")
     lines.append(f"Sources: {opp['sources']}/4")
     lines.append(f"_Check LORO for similar or better odds_")
 
@@ -822,7 +846,11 @@ def scan_once(args, player_data, last_initial_index, full_name_index, recent_ids
     if not args.skip_model:
         predictions_csv = args.predictions
         if not predictions_csv:
-            predictions_csv = run_predictions(events=events or None, load_state=True)
+            predictions_csv = run_predictions(
+                events=events or None,
+                poly_lines=poly_lines or None,
+                load_state=True,
+            )
         if predictions_csv:
             model_preds = load_predictions(predictions_csv)
             print(f"  Model: {len(model_preds)} predictions loaded")
