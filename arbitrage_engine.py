@@ -43,6 +43,8 @@ from transform_scraped import (
     build_recent_player_ids,
     harmonize_name,
     normalize_str,
+    normalize_player_name,
+    names_match,
 )
 
 load_dotenv()
@@ -392,7 +394,7 @@ def match_across_sources(model_preds, sharp_lines, loro_lines,
             key = tuple(sorted([pid_home, pid_away]))
             sharp_by_players[key] = {**line, 'pid_home': pid_home, 'pid_away': pid_away}
 
-    # LORO lines: names from OpenBet (format TBD)
+    # LORO lines: try player_id, fall back to normalized name key
     loro_by_players = {}
     for line in loro_lines:
         pid_home = harmonize_name(line['home'], 'loro',
@@ -403,9 +405,16 @@ def match_across_sources(model_preds, sharp_lines, loro_lines,
                                   player_data, recent_ids)
         if pid_home and pid_away:
             key = tuple(sorted([pid_home, pid_away]))
-            loro_by_players[key] = {**line, 'pid_home': pid_home, 'pid_away': pid_away}
+        else:
+            # Fallback: use normalized name as key
+            nh = normalize_player_name(line['home'])
+            na = normalize_player_name(line['away'])
+            key = tuple(sorted([nh, na]))
+            pid_home = pid_home or nh
+            pid_away = pid_away or na
+        loro_by_players[key] = {**line, 'pid_home': pid_home, 'pid_away': pid_away}
 
-    # Polymarket lines: names like "Carlos Alcaraz"
+    # Polymarket lines: try player_id, fall back to normalized name key
     poly_by_players = {}
     for line in (poly_lines or []):
         pid_home = harmonize_name(line['home'], 'odds_api',
@@ -416,7 +425,31 @@ def match_across_sources(model_preds, sharp_lines, loro_lines,
                                   player_data, recent_ids)
         if pid_home and pid_away:
             key = tuple(sorted([pid_home, pid_away]))
-            poly_by_players[key] = {**line, 'pid_home': pid_home, 'pid_away': pid_away}
+        else:
+            nh = normalize_player_name(line['home'])
+            na = normalize_player_name(line['away'])
+            key = tuple(sorted([nh, na]))
+            pid_home = pid_home or nh
+            pid_away = pid_away or na
+        poly_by_players[key] = {**line, 'pid_home': pid_home, 'pid_away': pid_away}
+
+    # Also try matching LORO ↔ Poly via names_match for entries that didn't
+    # get the same key (e.g. "Coco Gauff" vs "Cori Gauff")
+    _unmatched_loro = {k: v for k, v in loro_by_players.items()
+                       if k not in poly_by_players and isinstance(k[0], str)}
+    _unmatched_poly = {k: v for k, v in poly_by_players.items()
+                       if k not in loro_by_players and isinstance(k[0], str)}
+    for lk, lo in list(_unmatched_loro.items()):
+        for pk, po in list(_unmatched_poly.items()):
+            if (names_match(lo['home'], po['home']) and names_match(lo['away'], po['away'])):
+                # Merge under the poly key
+                loro_by_players[pk] = {**lo, 'pid_home': po['pid_home'], 'pid_away': po['pid_away']}
+                del loro_by_players[lk]
+                break
+            elif (names_match(lo['home'], po['away']) and names_match(lo['away'], po['home'])):
+                loro_by_players[pk] = {**lo, 'pid_home': po['pid_away'], 'pid_away': po['pid_home']}
+                del loro_by_players[lk]
+                break
 
     # Find matches present in multiple sources
     all_keys = (set(model_by_players) | set(sharp_by_players)
@@ -673,59 +706,43 @@ def _find_pre_edges(poly_lines, loro_lines, player_data,
                     min_edge):
     """Quick pre-scan: compare Polymarket vs LORO to find potential edges.
 
-    Returns list of (player_name, opponent_name, poly_prob, loro_prob, edge)
-    for matches where Polymarket and LORO diverge enough to warrant
-    burning an Odds API credit to confirm.
+    Uses direct name matching (no database needed) so it works for WTA too.
+
+    Returns list of edge values for matches where Polymarket and LORO diverge
+    enough to warrant burning an Odds API credit to confirm.
     """
-    # Build player-keyed indexes
-    poly_by = {}
-    for line in poly_lines:
-        pid_h = harmonize_name(line['home'], 'odds_api',
-                               last_initial_index, full_name_index,
-                               player_data, recent_ids)
-        pid_a = harmonize_name(line['away'], 'odds_api',
-                               last_initial_index, full_name_index,
-                               player_data, recent_ids)
-        if pid_h and pid_a:
-            key = tuple(sorted([pid_h, pid_a]))
-            poly_by[key] = {**line, 'pid_home': pid_h, 'pid_away': pid_a}
-
-    loro_by = {}
-    for line in loro_lines:
-        pid_h = harmonize_name(line['home'], 'loro',
-                               last_initial_index, full_name_index,
-                               player_data, recent_ids)
-        pid_a = harmonize_name(line['away'], 'loro',
-                               last_initial_index, full_name_index,
-                               player_data, recent_ids)
-        if pid_h and pid_a:
-            key = tuple(sorted([pid_h, pid_a]))
-            loro_by[key] = {**line, 'pid_home': pid_h, 'pid_away': pid_a}
-
     edges = []
-    common_keys = set(poly_by) & set(loro_by)
-    for key in common_keys:
-        pid1, pid2 = key
-        po = poly_by[key]
-        lo = loro_by[key]
+    matched_count = 0
 
-        # Align player order
-        if po.get('pid_home') == pid1:
-            poly_p1, poly_p2 = po['home_prob'], po['away_prob']
-        else:
-            poly_p1, poly_p2 = po['away_prob'], po['home_prob']
+    for lo in loro_lines:
+        for po in poly_lines:
+            # Match home players
+            home_match = names_match(lo['home'], po['home'])
+            away_match = names_match(lo['away'], po['away'])
+            # Also check swapped order
+            home_swap = names_match(lo['home'], po['away'])
+            away_swap = names_match(lo['away'], po['home'])
 
-        if lo.get('pid_home') == pid1:
-            loro_p1, loro_p2 = lo['home_prob'], lo['away_prob']
-        else:
-            loro_p1, loro_p2 = lo['away_prob'], lo['home_prob']
+            if home_match and away_match:
+                # Same player order
+                matched_count += 1
+                for poly_p, loro_p in [(po['home_prob'], lo['home_prob']),
+                                       (po['away_prob'], lo['away_prob'])]:
+                    edge = (poly_p - loro_p) * 100
+                    if edge >= min_edge:
+                        edges.append(edge)
+                break
+            elif home_swap and away_swap:
+                # Swapped player order
+                matched_count += 1
+                for poly_p, loro_p in [(po['away_prob'], lo['home_prob']),
+                                       (po['home_prob'], lo['away_prob'])]:
+                    edge = (poly_p - loro_p) * 100
+                    if edge >= min_edge:
+                        edges.append(edge)
+                break
 
-        # Check edge for each player
-        for poly_p, loro_p in [(poly_p1, loro_p1), (poly_p2, loro_p2)]:
-            edge = (poly_p - loro_p) * 100
-            if edge >= min_edge:
-                edges.append(edge)
-
+    print(f"  Poly-LORO name matches: {matched_count}/{len(loro_lines)} LORO matches")
     return edges
 
 

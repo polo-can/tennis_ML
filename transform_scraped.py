@@ -60,6 +60,89 @@ def normalize_str(s):
     return s
 
 
+def normalize_player_name(name):
+    """Normalize any player name format to canonical 'firstname lastname'.
+
+    Handles:
+        "Gauff, Cori"       -> "cori gauff"
+        "Coco Gauff"        -> "coco gauff"
+        "C. Alcaraz"        -> "c alcaraz"
+        "Polona Hercog"     -> "polona hercog"
+        "Lazaro Garcia, Andrea" -> "andrea lazaro garcia"
+    """
+    name = name.strip()
+    if not name:
+        return ''
+
+    # "Last, First" -> "First Last"
+    if ',' in name:
+        parts = name.split(',', 1)
+        name = f"{parts[1].strip()} {parts[0].strip()}"
+
+    return normalize_str(name)
+
+
+# Known nickname -> real name mappings
+NICKNAME_MAP = {
+    'coco': 'cori',         # Coco Gauff -> Cori Gauff
+    'sasha': 'alexander',   # Sasha Zverev -> Alexander Zverev
+    'rafa': 'rafael',       # Rafa Nadal -> Rafael Nadal
+    'andy': 'andrew',       # Andy Murray
+    'alex': 'alexander',    # Alex de Minaur
+}
+
+
+def names_match(name_a, name_b):
+    """Check if two player names refer to the same person.
+
+    Uses normalized comparison with nickname support and last-name matching.
+    """
+    norm_a = normalize_player_name(name_a)
+    norm_b = normalize_player_name(name_b)
+
+    if not norm_a or not norm_b:
+        return False
+
+    # Exact match
+    if norm_a == norm_b:
+        return True
+
+    # Split into parts
+    parts_a = norm_a.split()
+    parts_b = norm_b.split()
+
+    if not parts_a or not parts_b:
+        return False
+
+    # Last name must match (last word)
+    if parts_a[-1] != parts_b[-1]:
+        # Try compound last names: "lazaro garcia" vs "garcia"
+        if not (parts_a[-1] in parts_b or parts_b[-1] in parts_a):
+            return False
+
+    # First name/initial match
+    first_a = parts_a[0]
+    first_b = parts_b[0]
+
+    # Direct match
+    if first_a == first_b:
+        return True
+
+    # One starts with the other (initial vs full name)
+    if first_a.startswith(first_b) or first_b.startswith(first_a):
+        return True
+
+    # Nickname match
+    resolved_a = NICKNAME_MAP.get(first_a, first_a)
+    resolved_b = NICKNAME_MAP.get(first_b, first_b)
+    if resolved_a == resolved_b:
+        return True
+    if resolved_a.startswith(resolved_b) or resolved_b.startswith(resolved_a):
+        return True
+
+    return False
+
+
 def build_player_index(players_csv):
     """Build multiple lookup indexes from atp_players.csv for name matching.
 
